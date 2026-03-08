@@ -4,6 +4,7 @@ import json
 import logging
 from datetime import datetime, timezone
 
+from qstash import QStash
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
@@ -43,20 +44,22 @@ async def schedule_notification(
         logger.warning("QStash not configured — notification %s not scheduled", payload.id)
         return {"scheduled": False, "reason": "QStash not configured"}
 
-    from qstash import QStash
-
-    client = QStash(token=settings.qstash_token)
-    callback_url = f"{settings.service_url}/webhook/fire"
-    client.message.publish_json(
-        url=callback_url,
-        body={
-            "telegram_chat_id": payload.telegram_chat_id,
-            "title": payload.title,
-            "body": payload.body,
-        },
-        delay=delay_seconds,
-        headers={"x-notification-id": payload.id},
-    )
+    try:
+        client = QStash(token=settings.qstash_token)
+        callback_url = f"{settings.service_url}/webhook/fire"
+        client.message.publish_json(
+            url=callback_url,
+            body={
+                "telegram_chat_id": payload.telegram_chat_id,
+                "title": payload.title,
+                "body": payload.body,
+            },
+            delay=delay_seconds,
+            headers={"x-notification-id": payload.id},
+        )
+    except Exception as exc:
+        logger.error("QStash publish failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
 
     logger.info("Scheduled notification %s in %ds via QStash", payload.id, delay_seconds)
     return {"scheduled": True, "delay_seconds": delay_seconds, "mode": "qstash"}
